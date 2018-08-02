@@ -1,0 +1,167 @@
+Day3
+
+audit（内核自带的审计功能）
+审计不会为系统提供额外的安全保护，但会发现并记录违反安全策略的人及其对应的行为
+audit(linux默认装好的)
+配置文件：
+/etc/audit/auditd.conf
+日志文件
+/var/log/audit/audit.log    //不能关
+
+auditctl  -s                        //查询状态
+auditctl  -l                        //查看规则
+auditctl  -D                        //删除所有规则
+
+#语法格式：
+auditctl  -w  path(路径文件，要监控的内容)  -p  permission（r，w，x，a（属性））  -k  key_name（为日志文件取一个名称）
+写入永久规则：
+vim /etc/audit/rules.d/audit.rules
+auditctl 不可以 restart
+查看：
+tailf----时时
+vim
+ausearch -k name -if 文件                //转换成可读的时间等信息
+
+#########################################################################
+
+加固常见服务的安全
+Nginx Mysql Tomcat 
+
+Nginx:
+./configure 可以最小化，装小的时安全的 最小化永远是最优的方案
+以下模块不要安装,也支持扩展将普通的程序with到里面
+--without-http_ssi_module
+--without-http_autoindex_module(若是访问不成功就会自动列出所有文件)
+nginx --without查询模块
+
+隐藏nginx版本号
+
+http{
+     server_tokens off;                            //在http下面手动添加这么一行（关闭版本显示）
+
+
+并发访问时拒绝相同IP并发访问，修改配置文件
+limit_req_zone【向内存要一块zone】 $binary_remote_addr（）【放置对方的IP】 zone=one:10m【设置一个内存区域大小10M，1M=8000个IP】 rate=1r/s【每秒允许一个访问】;
+limit_req zone=one burst=5【漏斗为5个（等待5个）】;
+imit_req_zone $binary_remote_addr zone=one:10m rate=1r/s;
+    server {
+        listen 80;
+        server_name localhost;
+        limit_req zone=one burst=5;
+            }
+
+拒绝非法的请求
+网站使用的是HTTP协议，该协议中定义了很多方法，可以让用户连接服务器，获得需要的资源。但实际应用中一般仅需要get和post。
+curl -i -X GET  http://192.168.4.5
+curl -i -X HEAD http://192.168.4.5 
+
+配置文件中添加防止HEAD访问：
+
+isten 80;
+#这里，!符号表示对正则取反，~符号是正则匹配符号
+#如果用户使用非GET或POST方法访问网站，则retrun返回444的错误信息
+              if ($request_method !~ ^(GET|POST)$ ) {
+                     return 444;
+               }    
+
+防止buffer溢出（放置内存填满溢出）
+
+http{
+client_body_buffer_size  1K;
+client_header_buffer_size 1k;
+client_max_body_size 1k;
+large_client_header_buffers 2 1k;
+ … …
+}
+
+#######################################################################
+
+数据库安全
+装完mariadb即可
+并禁止root从远程其他主机登陆数据库，并删除测试性数据库test。
+mysql_secure_installation
+mysqladmin -uroot -p【老密码】 password '【新密码】'
+set password for root@'localhost'=password('redhat')
+mysql用户存放位置：
+/var/log
+.bash_history
+
+MySQL有以下几种日志：
+错误日志： -log-err
+查询日志： -log
+慢查询日志: -log-slow-queries
+更新日志: -log-update
+二进制日志： -log-bin
+
+数据备份与还原 
+mysqldump -uroot -predhat mydb table > table.sql    //备份数据库中的某个数据表【三不适用于大型数据库】
+mysqldump -uroot -predhat mydb > mydb.sql           //备份某个数据库
+mysqldump -uroot -predhat --all-databases > all.sql //备份所有数据库
+mysql -uroot -predhat mydb  < table.sql            //还原数据表
+cp-----》快速【需要锁定】
+
+数据安全
+
+MariaDB [(none)]>grant all on *.* to tom@'%' identified by '123';【允许以tom身份可以123在任何机子上连接数据库】
+退出mysql
+tcpdump抓包端口3306
+
+在客户端远程登陆数据库服务器
+mysql -utom -p123 -h 192.168.4.5        //在192.168.4.100这台主机使用mysql命令登陆远程数据库服务器（192.168.4.5）
+MariaDB [(none)]> select * from mysql.user;       //登陆数据库后，任意执行一条查询语句
+tcpdump -A -r log   //查看数据抓包
+
+####################################################
+
+tomcat:
+隐藏版本信息、修改tomcat主配置文件（隐藏版本信息）
+vim org/apache/catalina/util/ServerInfo.properties  //修改名字
+【需要安装ava-1.8.0-openjdk-devel进行jar包解压】
+
+vim /usr/local/tomcat/conf/server.xml
+Connector port="8080" protocol="HTTP/1.1"
+connectionTimeout="20000"  redirectPort="8443" server="jacob" />
+该servername为jacob
+
+先添加一个user：tomcat
+chown -R tomcat:tamcat /usr/local/tomcat
+vim /etc/rc.local                     //修改文件，添加如下内容,脚本的开机自启动（需要加X 权限）
+su -c /usr/local/tomcat/bin/startup.sh tomcat
+
+//使用su命令切换为tomcat账户，以tomcat账户的身份启动tomcat服务
+vim org/apache/catalina/util/ServerInfo.properties
+
+##############################################################################
+
+
+使用diff和patch工具打补丁
+diff -u test1.sh test2.sh                 //查看差异，包含头部信息
+diff制作补丁文件的原理：告诉我们怎么修改第一个文件后能得到第二个文件。
+这样如果第一个版本的脚本有漏洞，我们不需要将整个脚本都替换，仅需要修改有问题的一小部分代码即可
+-u 输出统一内容的头部信息（打补丁使用），计算机知道是哪个文件需要修改
+-r 递归对比目录中的所有资源（可以对比目录）
+-a 所有文件视为文本（包括二进制程序）
+-N 无文件视为空文件（空文件怎么变成第二个文件）【原来没有文件，现在需要加上文件】
+-N选项备注说明：
+A目录下没有txt文件，B目录下有txt文件
+
+yum -y install patch(装包)
+patch -p0 < test.patch                      //p0打布丁
+patch -RE < test.patch                      //RE还原旧版本，反向修复
+//-p0则整个路径不变
+//-p1则修改路径为u/howard/src/blurfl/blurfl.c
+//-pn将第n层路径删掉
+//-p4则修改路径为blurfl/blurfl.c
+//-R(reverse)反向修复，-E修复后如果文件为空，则删除该文件
+source1/
+├── find
+└── test.sh
+
+source2/
+├── find
+├── test.sh
+└── tmp.txt
+diff -uraN html1.0 html2.0 > html.patch   /查看对比
+
+cd source1/看你cd的位置选择pn
+patch  -p1 < ../source.patch   //对上一层的patch打布丁
